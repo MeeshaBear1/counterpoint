@@ -13,7 +13,7 @@ Single-page React + Tone.js app, wrapped as native iOS & Android via Capacitor.
 1. **Analysis** — the transcript's *structure* (not its music) is labelled as a
    strict JSON "score": an array of events `{ speaker, turn, startBeat,
    durationBeats, kind, motifRef, intensity }`. Two paths, identical shape:
-   - **Claude** (`claude-sonnet-4-6`) via the serverless proxy `api/analyze.ts`,
+   - **Claude** (`claude-sonnet-5`) via the serverless proxy `api/analyze.ts`,
      using a forced tool call for guaranteed JSON.
    - **On-device heuristic** ([src/heuristic.ts](src/heuristic.ts)) — the offline
      fallback and the reference definition of the mapping. The app is fully

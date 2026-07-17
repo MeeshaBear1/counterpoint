@@ -1,10 +1,10 @@
 // Serverless proxy (Vercel Node function). Keeps the Anthropic key server-side.
 // Returns the same Score shape the client heuristic produces, so the music
 // engine renders either identically. Strict JSON is guaranteed via a forced
-// tool call (claude-sonnet-4-6 doesn't support output_config.format).
+// tool call — works on every model and needs no output_config.
 import Anthropic from '@anthropic-ai/sdk'
 
-const MODEL = 'claude-sonnet-4-6'
+const MODEL = 'claude-sonnet-5'
 
 // One tool the model is forced to call — its input IS the score.
 const SCORE_TOOL = {
@@ -76,6 +76,7 @@ export default async function handler(req: any, res: any) {
     const msg = await client.messages.create({
       model: MODEL,
       max_tokens: 8000,
+      thinking: { type: 'disabled' }, // bounded extraction — no need for adaptive thinking (Sonnet 5's default)
       system: SYSTEM,
       tools: [SCORE_TOOL],
       tool_choice: { type: 'tool', name: 'emit_score' },
