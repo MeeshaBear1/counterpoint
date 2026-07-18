@@ -2,7 +2,7 @@
 // Returns the same Score shape the client heuristic produces, so the music
 // engine renders either identically. Analysis logic lives in ./_core (shared
 // with the Vite dev middleware).
-import { NoKeyError, scoreFromTranscript } from './_core'
+import { NoKeyError, scoreFromTranscript } from './_core.js'
 
 export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
