@@ -48,9 +48,17 @@ Playback requires a click (Web Audio autoplay policy) — hit **Listen**.
 
 ### Live Claude analysis
 
-Deploy on Vercel (auto-detects Vite + serves `api/`). Set `ANTHROPIC_API_KEY`
-in the project env. The client calls `/api/analyze`; on any failure it silently
-falls back to the heuristic. See [.env.example](.env.example).
+The SDK reads `ANTHROPIC_API_KEY` from the process env, so a system-level env var
+just works — no `.env` needed.
+
+- **Local dev:** `npm run dev` serves `/api/analyze` via a Vite middleware
+  ([vite.config.ts](vite.config.ts)) sharing the same core as the function, so
+  live Sonnet 5 analysis runs on your machine.
+- **Production:** deploy on Vercel (auto-detects Vite + serves `api/`); set
+  `ANTHROPIC_API_KEY` in the project env.
+
+The client calls `/api/analyze`; on any failure (no key, offline) it silently
+falls back to the on-device heuristic. See [.env.example](.env.example).
 
 ### Mobile (iOS + Android)
 
