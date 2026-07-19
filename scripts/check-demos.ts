@@ -86,6 +86,40 @@ const bpStacc = bp.notes.filter((n) => n.staccato).length
 if (apStacc < 8) fail(`argument barely staccato: ${apStacc}`)
 if (bpStacc > apStacc / 3) fail(`brainstorm too staccato: ${bpStacc} vs argument ${apStacc}`)
 
+// 6. No breaks between speakers: the melody line is continuous. Legato phrase
+// endings ring into the next entrance; only staccato bite may leave daylight.
+for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
+  const mel = p.notes.filter((n) => n.voice === 'melody').sort((a, b) => a.startBeat - b.startBeat)
+  let covered = mel[0].startBeat + mel[0].durBeats
+  for (const n of mel.slice(1)) {
+    const gap = n.startBeat - covered
+    if (gap > 0.6) fail(`${name}: ${gap.toFixed(2)}-beat hole in the melody at beat ${covered.toFixed(1)}`)
+    covered = Math.max(covered, n.startBeat + n.durBeats)
+  }
+}
+
+// 7. Every phrase plays off the counterparty: its opening pitch appears in the
+// previous phrase's tail (octave-agnostic). Checked on the brainstorm, where
+// no phrase is inverted (challenges quote inverted by design).
+{
+  const byPhrase = new Map<number, typeof bp.notes>()
+  for (const n of bp.notes.filter((n) => n.voice === 'melody')) {
+    byPhrase.set(n.phrase, [...(byPhrase.get(n.phrase) ?? []), n])
+  }
+  const ids = [...byPhrase.keys()].sort((a, b) => a - b)
+  let hits = 0
+  let eligible = 0
+  for (let k = 1; k < ids.length; k++) {
+    const prev = byPhrase.get(ids[k - 1])!
+    const cur = byPhrase.get(ids[k])!
+    const tailPcs = prev.slice(-2).map((n) => n.midis[0] % 12)
+    eligible++
+    if (tailPcs.includes(cur[0].midis[0] % 12)) hits++
+  }
+  if (eligible === 0 || hits / eligible < 0.7) fail(`imitation too weak: ${hits}/${eligible} phrases quote the counterparty`)
+  console.log(`imitation: ${hits}/${eligible} phrases open from the counterparty's tail`)
+}
+
 console.log(
   `\nOK — structure: consonant=${consonant} vs combative=${combative} · no tritone dyads · ` +
     `brainstorm ${((bsInMajor / bsAll) * 100).toFixed(0)}% major w/ lift+cadence · ` +

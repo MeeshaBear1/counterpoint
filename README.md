@@ -27,6 +27,7 @@ Single-page React + Tone.js app, wrapped as native iOS & Android via Capacitor.
 | Structure | Music |
 |---|---|
 | Each speaker | one instrument / colour / register (all voices share one key) |
+| Every turn | opens by quoting the counterparty's tail — real call-and-response; a challenge quotes it *inverted* (arguing with the same material); phrase endings ring into the next entrance, so the line never breaks |
 | Turn length | phrase length |
 | Question | rising contour, hanging unresolved on the 6th degree |
 | Answer | descends and resolves home |
