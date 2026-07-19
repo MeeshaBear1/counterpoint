@@ -26,14 +26,30 @@ Single-page React + Tone.js app, wrapped as native iOS & Android via Capacitor.
 
 | Structure | Music |
 |---|---|
-| Each speaker | one instrument / colour / register |
+| Each speaker | one instrument / colour / register (all voices share one key) |
 | Turn length | phrase length |
-| Question | rising, unresolved contour |
-| Answer | picks up the question's motif and resolves home |
+| Question | rising contour, hanging unresolved on the 6th degree |
+| Answer | descends and resolves home |
 | Agreement / building on | reuses the other voice's motif, harmonised in thirds & sixths |
-| Challenge / contradiction | tritone clash against the melody |
+| Sustained collaboration | the **lift arc** — register climbs, harmony thickens, dynamics swell |
+| Challenge / contradiction | dark natural minor, low register, driving staccato, a chromatic lean that *resolves* — tension, never noise |
 | Interruption | short, cut off, an octave up |
-| Emotional temperature | tempo & dynamics arc (heat = faster, louder) |
+| Emotional temperature | tempo & dynamics arc (heat = faster, louder) + major ↔ minor mode |
+| A collaborative ending | earns a V → I(add9) cadence; a combative one ends on a bare low minor chord |
+
+Under the voices, a generated accompaniment (bass root motion + soft rolled
+triads, I–vi–IV–V when warm, i–VI–III–VII when dark) gives the ear a floor.
+Composition is pure and deterministic ([src/compose.ts](src/compose.ts)) — the
+check suite asserts on real note plans (no bare-tritone chords anywhere, ever).
+
+### Instruments
+
+Three palettes: **Chamber** (sampled piano, cello, violin, flute, harp — the
+default), **Jazz trio** (piano, sax, upright bass, light swing), and
+**Night** (pure synth — loads instantly, no samples, offline fallback).
+Samples are vendored in `public/samples/` from
+[nbrosowsky/tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
+(VSCO2 Community Edition et al., CC licenses).
 
 ## Run
 

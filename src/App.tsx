@@ -176,7 +176,7 @@ export default function App() {
               </label>
               <label className="text-xs text-white/60">
                 Palette
-                <select value={paletteId} onChange={(e) => setPaletteId(e.target.value)}
+                <select value={paletteId} onChange={(e) => { stop(); setPaletteId(e.target.value) }}
                   className="mt-1 w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-sm text-white/85 outline-none">
                   {PALETTES.map((p) => <option key={p.id} value={p.id} className="bg-[#111]">{p.label}</option>)}
                 </select>
@@ -197,8 +197,9 @@ export default function App() {
                 ))}
               </div>
               <div className="mt-3 border-t border-white/10 pt-3 text-[11px] leading-relaxed text-white/45">
-                question = rising, unresolved · answer = resolves home · agreement = shared motif in thirds ·
-                challenge = tritone clash · interruption = cut off, an octave up · heat = faster &amp; louder
+                question = rising, unresolved · answer = resolves home · agreement = shared motif in thirds, and the music lifts as you build ·
+                challenge = dark minor, low &amp; driving · interruption = cut off, an octave up · heat = faster &amp; louder ·
+                a collaborative ending earns its cadence
                 {source && <span className="ml-1 text-white/30">· analysis: {source === 'anthropic' ? 'Claude' : 'local heuristic'}</span>}
               </div>
             </div>

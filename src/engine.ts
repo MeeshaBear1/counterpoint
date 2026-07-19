@@ -1,259 +1,260 @@
-// Deterministic music engine. Given a Score (from the LLM or the heuristic),
-// it renders the SAME notes every time — the LLM only labels structure, all
-// composition lives here. Runs against either the live Transport or an offline
-// Transport (for WAV export), so the export is bit-identical to playback.
+// Tone.js renderer. All composition lives in compose.ts (pure); this file only
+// builds instruments and schedules the plan — on the live Transport or an
+// offline one, so the WAV export is identical to playback.
 import * as Tone from 'tone'
-import type { Score, ScoreEvent } from './score'
-
-export interface Palette {
-  id: string
-  label: string
-  // one voice factory per speaker slot; created fresh per audio context
-  make: (i: number) => Tone.PolySynth
-}
+import { makeClock, plan, type Plan } from './compose'
+import { makeSampler, preload } from './samples'
+import type { Score } from './score'
 
 // Speaker colours (index → hue), used by both engine visuals and the UI legend.
 export const SPEAKER_COLORS = ['#ff5c8a', '#4dd0e1', '#ffd166', '#9d7bff', '#5ce1a0', '#ff9f5c']
 
-const majorEnv = { attack: 0.008, decay: 0.3, sustain: 0.25, release: 1.2 }
-const padEnv = { attack: 0.6, decay: 0.4, sustain: 0.7, release: 2.4 }
+type Voice = Tone.Sampler | Tone.PolySynth
 
-function poly(opts: { oscillator: any; envelope: any; volume: number }): Tone.PolySynth {
-  const p = new Tone.PolySynth(Tone.Synth)
-  p.set({ oscillator: opts.oscillator, envelope: opts.envelope })
-  p.volume.value = opts.volume
-  return p
+interface VoiceSpec {
+  instrument?: string // sampled
+  synth?: () => Tone.PolySynth // synthesized fallback/palette
+  base: number // melodic register (midi)
+  volume: number
+  release?: number
+}
+
+export interface Palette {
+  id: string
+  label: string
+  melody: VoiceSpec[]
+  bass: VoiceSpec
+  pad: VoiceSpec
+  swing: number
+}
+
+function softSynth(type: OscillatorType, volume: number, envelope: Partial<Tone.EnvelopeOptions> = {}): () => Tone.PolySynth {
+  return () => {
+    const p = new Tone.PolySynth(Tone.Synth)
+    p.set({ oscillator: { type } as any, envelope: { attack: 0.4, decay: 0.3, sustain: 0.6, release: 2.2, ...envelope } })
+    p.volume.value = volume
+    return p
+  }
 }
 
 export const PALETTES: Palette[] = [
   {
     id: 'chamber',
-    label: 'Chamber — piano & cello',
-    make: (i) =>
-      i % 2 === 0
-        ? poly({ oscillator: { type: 'triangle' }, envelope: majorEnv, volume: -8 }) // piano-ish
-        : poly({ oscillator: { type: 'sawtooth' }, envelope: { ...majorEnv, attack: 0.06, release: 1.6 }, volume: -12 }), // cello-ish
+    label: 'Chamber — piano, cello, violin',
+    melody: [
+      { instrument: 'piano', base: 60, volume: -6 },
+      { instrument: 'cello', base: 48, volume: -5 },
+      { instrument: 'violin', base: 72, volume: -9 },
+      { instrument: 'flute', base: 72, volume: -10 },
+      { instrument: 'harp', base: 60, volume: -6 },
+      { instrument: 'piano', base: 72, volume: -8 },
+    ],
+    bass: { instrument: 'cello', base: 36, volume: -7, release: 1.6 },
+    pad: { instrument: 'harp', base: 60, volume: -14 },
+    swing: 0,
+  },
+  {
+    id: 'jazz',
+    label: 'Jazz trio — piano, sax, upright bass',
+    melody: [
+      { instrument: 'piano', base: 60, volume: -6 },
+      { instrument: 'saxophone', base: 60, volume: -10 },
+      { instrument: 'piano', base: 72, volume: -8 },
+      { instrument: 'saxophone', base: 67, volume: -11 },
+      { instrument: 'piano', base: 48, volume: -7 },
+      { instrument: 'saxophone', base: 55, volume: -11 },
+    ],
+    bass: { instrument: 'contrabass', base: 36, volume: -4, release: 1.2 },
+    pad: { instrument: 'piano', base: 55, volume: -16 },
+    swing: 0.6,
   },
   {
     id: 'night',
-    label: 'Night — synth pads',
-    make: (i) =>
-      poly({
-        oscillator: { type: i % 2 === 0 ? 'fatsawtooth' : 'fatsine', count: 3, spread: 30 } as any,
-        envelope: padEnv,
-        volume: -14,
-      }),
-  },
-  {
-    id: 'glass',
-    label: 'Glass — bells & sine',
-    make: (i) =>
-      poly({
-        oscillator: { type: i % 2 === 0 ? 'sine' : 'triangle' },
-        envelope: { attack: 0.002, decay: 1.4, sustain: 0.02, release: 1.6 },
-        volume: -9,
-      }),
+    label: 'Night — synth pads (no samples)',
+    melody: [
+      { synth: softSynth('triangle', -10, { attack: 0.05, release: 1.8 }), base: 60, volume: -10 },
+      { synth: softSynth('sine', -9, { attack: 0.08, release: 2 }), base: 48, volume: -9 },
+      { synth: softSynth('triangle', -12, { attack: 0.05, release: 1.8 }), base: 72, volume: -12 },
+      { synth: softSynth('sine', -12, { attack: 0.08, release: 2 }), base: 67, volume: -12 },
+      { synth: softSynth('triangle', -11, { attack: 0.05, release: 1.8 }), base: 55, volume: -11 },
+      { synth: softSynth('sine', -12, { attack: 0.08, release: 2 }), base: 64, volume: -12 },
+    ],
+    bass: { synth: softSynth('sine', -6, { attack: 0.03, release: 1.5 }), base: 36, volume: -6 },
+    pad: { synth: softSynth('sine', -18, { attack: 0.6, release: 3 }), base: 60, volume: -18 },
+    swing: 0,
   },
 ]
 
-// --- music theory ---------------------------------------------------------
-const MAJOR = [0, 2, 4, 5, 7, 9, 11]
-// speaker key centres: closely related keys (C, G, F, D) so voices are consonant
-// when they cooperate; dissonance is introduced per-event, not per-speaker.
-const ROOTS = [0, 7, 5, 2, 9, 4]
-const BASE_MIDI = 48 // C3
-
-// six melodic motifs, as scale-degree contours
-const MOTIFS = [
-  [0, 2, 4, 2],
-  [0, -1, -3, -1],
-  [0, 3, 1, 4],
-  [4, 2, 0],
-  [0, 1, 2, 4],
-  [0, -2, -3, 0],
-]
-
-function degToMidi(root: number, deg: number): number {
-  const oct = Math.floor(deg / 7)
-  const idx = ((deg % 7) + 7) % 7
-  return BASE_MIDI + root + oct * 12 + MAJOR[idx]
+function paletteById(id: string): Palette {
+  return PALETTES.find((p) => p.id === id) ?? PALETTES[0]
 }
 
-// A phrase = a list of chords (each an array of midi notes) for one event.
-function phrase(ev: ScoreEvent, speakerIndex: number): number[][] {
-  const root = ROOTS[speakerIndex % ROOTS.length]
-  const motif = MOTIFS[((ev.motifRef % MOTIFS.length) + MOTIFS.length) % MOTIFS.length]
-  const oct = ev.kind === 'interruption' ? 12 : 0 // interruptions pierce an octave up
-  const mk = (deg: number, extra: number[] = []) => [degToMidi(root, deg) + oct, ...extra.map((e) => degToMidi(root, deg) + oct + e)]
+function sampledInstruments(p: Palette): string[] {
+  const names = [...p.melody, p.bass, p.pad].map((v) => v.instrument).filter(Boolean) as string[]
+  return [...new Set(names)]
+}
 
-  switch (ev.kind) {
-    case 'question':
-      // rising, ends unresolved (on the 2nd/leading tone, not the tonic)
-      return [mk(0), mk(2), mk(4), mk(6), mk(7)]
-    case 'answer':
-      // start high, descend and RESOLVE to the tonic
-      return [mk(4), mk(3), mk(1), mk(0)]
-    case 'agreement':
-      // develop the prior voice's motif, harmonised in thirds/sixths — consonant
-      return motif.map((d) => mk(d, [2, 4]))
-    case 'challenge':
-      // the melody clashed with a tritone (+6 semitones) — dissonant by design
-      return motif.map((d) => [degToMidi(root, d), degToMidi(root, d) + 6])
-    case 'interruption':
-      return [mk(0), mk(1)]
-    default: // statement — motif that lands home on the tonic
-      return [...motif.map((d) => mk(d)), mk(0)]
-  }
+function makeVoice(spec: VoiceSpec): Voice {
+  if (spec.instrument) return makeSampler(spec.instrument, { volume: spec.volume, release: spec.release ?? 1.4 })
+  return spec.synth!()
+}
+
+interface Voices {
+  melody: Voice[]
+  bass: Voice
+  pad: Voice
+  all: Voice[]
+}
+
+function buildVoices(palette: Palette, destination: Tone.ToneAudioNode): Voices {
+  const melody = palette.melody.map((s) => makeVoice(s).connect(destination))
+  const bass = makeVoice(palette.bass).connect(destination)
+  const pad = makeVoice(palette.pad).connect(destination)
+  return { melody, bass, pad, all: [...melody, bass, pad] }
 }
 
 const midiToFreq = (m: number) => Tone.Frequency(m, 'midi').toFrequency()
-
-// --- tempo/dynamics arc ---------------------------------------------------
-// A monotonic beat→seconds clock whose local tempo rises with the emotional
-// temperature of the moment, so a heated stretch literally speeds up. Built
-// deterministically so live playback and offline export share timing exactly.
-function intensityAtBeat(score: Score, beat: number): number {
-  let cur = 0.4
-  for (const e of score.events) {
-    if (e.startBeat <= beat) cur = e.intensity
-    else break
-  }
-  return cur
-}
-
-function makeClock(score: Score, baseBpm: number): (beat: number) => number {
-  const step = 0.25
-  const beats = [0]
-  const times = [0]
-  let t = 0
-  for (let b = step; b <= score.totalBeats + 2; b += step) {
-    const bpm = baseBpm * (0.85 + 0.5 * intensityAtBeat(score, b - step / 2))
-    t += (60 / bpm) * step
-    beats.push(b)
-    times.push(t)
-  }
-  return (beat: number) => {
-    if (beat <= 0) return 0
-    let i = Math.min(beats.length - 1, Math.floor(beat / step))
-    if (i >= beats.length - 1) return times[times.length - 1]
-    const f = (beat - beats[i]) / step
-    return times[i] + f * (times[i + 1] - times[i])
-  }
-}
 
 export interface RenderHooks {
   onNote?: (speakerIndex: number, midi: number, time: number) => void
   onTurn?: (turn: number) => void
 }
 
-// Schedule the whole score onto a transport. Returns the end time in seconds.
-export function scheduleScore(
+export function planFor(score: Score, paletteId: string): Plan {
+  const p = paletteById(paletteId)
+  return plan(score, {
+    speakerBases: p.melody.map((m) => m.base),
+    bassBase: p.bass.base,
+    padBase: p.pad.base,
+    swing: p.swing,
+  })
+}
+
+// Schedule a plan onto a transport. Returns the end time in seconds.
+export function schedulePlan(
   transport: ReturnType<typeof Tone.getTransport>,
   score: Score,
-  voices: Tone.PolySynth[],
+  planned: Plan,
+  voices: Voices,
   baseBpm: number,
   hooks: RenderHooks = {},
 ): number {
-  const clock = makeClock(score, baseBpm)
+  const clock = makeClock(score, baseBpm, planned.endBeat)
   const draw = Tone.getDraw()
 
-  for (const ev of score.events) {
-    const si = Math.max(0, score.speakers.indexOf(ev.speaker))
-    const voice = voices[si % voices.length]
-    const chords = phrase(ev, si)
-    const vel = Math.max(0.15, Math.min(1, 0.25 + ev.intensity * 0.65))
+  for (const n of planned.notes) {
+    const voice = n.voice === 'melody' ? voices.melody[n.speaker % voices.melody.length] : n.voice === 'bass' ? voices.bass : voices.pad
+    const t0 = clock(n.startBeat)
+    const t1 = clock(n.startBeat + n.durBeats)
+    const dur = Math.max(0.07, (t1 - t0) * (n.staccato ? 0.45 : 0.92))
+    const freqs = n.midis.map(midiToFreq)
+    const isMelody = n.voice === 'melody'
+    transport.scheduleOnce((time) => {
+      voice.triggerAttackRelease(freqs, dur, time, n.vel)
+      if (isMelody && hooks.onNote) draw.schedule(() => hooks.onNote!(n.speaker, n.midis[0], time), time)
+    }, t0)
+  }
 
-    chords.forEach((chord, i) => {
-      const nb0 = ev.startBeat + (i / chords.length) * ev.durationBeats
-      const nb1 = ev.startBeat + ((i + 1) / chords.length) * ev.durationBeats
-      const t0 = clock(nb0)
-      const dur = Math.max(0.08, (clock(nb1) - t0) * 0.92)
-      const freqs = chord.map(midiToFreq)
-      transport.scheduleOnce((time) => {
-        voice.triggerAttackRelease(freqs, dur, time, vel)
-        if (hooks.onNote) draw.schedule(() => hooks.onNote!(si, chord[0], time), time)
-      }, t0)
-    })
-
-    if (hooks.onTurn) {
-      const tt = clock(ev.startBeat)
-      transport.scheduleOnce((time) => draw.schedule(() => hooks.onTurn!(ev.turn), time), tt)
+  if (hooks.onTurn) {
+    for (const m of planned.turnMarks) {
+      transport.scheduleOnce((time) => draw.schedule(() => hooks.onTurn!(m.turn), time), clock(m.startBeat))
     }
   }
-  return clock(score.totalBeats) + 2
+  return clock(planned.endBeat) + 2
+}
+
+function makeSpace(): { input: Tone.ToneAudioNode; nodes: Tone.ToneAudioNode[]; ready: Promise<void> } {
+  const reverb = new Tone.Reverb({ decay: 2.8, preDelay: 0.02, wet: 0.3 })
+  const limiter = new Tone.Limiter(-2)
+  reverb.connect(limiter)
+  limiter.toDestination()
+  return { input: reverb, nodes: [reverb, limiter], ready: reverb.ready.then(() => undefined) }
 }
 
 // --- live player ----------------------------------------------------------
 export class Player {
-  private voices: Tone.PolySynth[] = []
+  private voices: Voices | null = null
   private chain: Tone.ToneAudioNode[] = []
   private paletteId: string
+  private builtFor = ''
+  private gen = 0 // bumped by stop(); play() aborts if it changed during preload
 
   constructor(paletteId: string) {
     this.paletteId = paletteId
-    this.build()
-  }
-
-  private build() {
-    this.dispose()
-    const palette = PALETTES.find((p) => p.id === this.paletteId) ?? PALETTES[0]
-    const reverb = new Tone.Freeverb({ roomSize: 0.7, dampening: 2600, wet: 0.22 })
-    const limiter = new Tone.Limiter(-2)
-    reverb.connect(limiter)
-    limiter.toDestination()
-    this.chain = [reverb, limiter]
-    // up to 6 distinct voices; UI keeps speakers to a sane count
-    this.voices = Array.from({ length: 6 }, (_, i) => palette.make(i).connect(reverb))
   }
 
   setPalette(id: string) {
     if (id === this.paletteId) return
-    // stop first: scheduled events hold the old voices, which build() disposes
+    // stop first: scheduled events hold the old voices, which we dispose
     this.stop()
     this.paletteId = id
-    this.build()
+  }
+
+  // Load samples for the palette; on failure (offline, missing assets) fall
+  // back to the synth palette so the app always plays.
+  private async ensureVoices(): Promise<void> {
+    let palette = paletteById(this.paletteId)
+    try {
+      await preload(sampledInstruments(palette))
+    } catch {
+      palette = paletteById('night')
+    }
+    if (this.voices && this.builtFor === palette.id) return
+    this.disposeVoices()
+    const space = makeSpace()
+    await space.ready
+    this.chain = space.nodes
+    this.voices = buildVoices(palette, space.input)
+    this.builtFor = palette.id
   }
 
   async play(score: Score, bpm: number, hooks: RenderHooks & { onEnd?: () => void }) {
     await Tone.start()
     this.stop()
+    const gen = this.gen
+    await this.ensureVoices()
+    if (gen !== this.gen) return // user hit stop while samples loaded
     const transport = Tone.getTransport()
-    transport.bpm.value = bpm
-    const end = scheduleScore(transport, score, this.voices, bpm, hooks)
+    const planned = planFor(score, this.builtFor)
+    const end = schedulePlan(transport, score, planned, this.voices!, bpm, hooks)
     if (hooks.onEnd) transport.scheduleOnce(() => Tone.getDraw().schedule(() => hooks.onEnd!(), 0), end)
     transport.start()
   }
 
   stop() {
+    this.gen++
     const transport = Tone.getTransport()
     transport.stop()
     transport.cancel(0)
     transport.position = 0
-    this.voices.forEach((v) => v.releaseAll())
+    this.voices?.all.forEach((v) => v.releaseAll())
   }
 
-  private dispose() {
-    this.voices.forEach((v) => v.dispose())
+  private disposeVoices() {
+    this.voices?.all.forEach((v) => v.dispose())
     this.chain.forEach((n) => n.dispose())
-    this.voices = []
+    this.voices = null
     this.chain = []
   }
 }
 
 // --- WAV export (deterministic, offline) ---------------------------------
 export async function renderWav(score: Score, bpm: number, paletteId: string): Promise<Blob> {
-  const palette = PALETTES.find((p) => p.id === paletteId) ?? PALETTES[0]
-  // measure duration with a throwaway clock at the same tempo
-  const duration = makeClock(score, bpm)(score.totalBeats) + 2.5
+  let palette = paletteById(paletteId)
+  try {
+    await preload(sampledInstruments(palette))
+  } catch {
+    palette = paletteById('night')
+  }
+  const planned = planFor(score, palette.id)
+  const duration = makeClock(score, bpm, planned.endBeat)(planned.endBeat) + 2.5
 
-  const buffer = await Tone.Offline(({ transport }) => {
-    const reverb = new Tone.Freeverb({ roomSize: 0.7, dampening: 2600, wet: 0.22 })
-    const limiter = new Tone.Limiter(-2)
-    reverb.connect(limiter)
-    limiter.toDestination()
-    const voices = Array.from({ length: 6 }, (_, i) => palette.make(i).connect(reverb))
+  const buffer = await Tone.Offline(async ({ transport }) => {
+    const space = makeSpace()
+    await space.ready
+    const voices = buildVoices(palette, space.input)
     transport.bpm.value = bpm
-    scheduleScore(transport, score, voices, bpm)
+    schedulePlan(transport, score, planned, voices, bpm)
     transport.start()
   }, duration)
 
