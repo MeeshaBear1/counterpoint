@@ -208,6 +208,8 @@ export class Player {
 
   setPalette(id: string) {
     if (id === this.paletteId) return
+    // stop first: scheduled events hold the old voices, which build() disposes
+    this.stop()
     this.paletteId = id
     this.build()
   }

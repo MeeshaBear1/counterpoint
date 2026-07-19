@@ -37,3 +37,5 @@ ios/App/App/public
 *.njsproj
 *.sln
 *.sw?
+
+.vercel

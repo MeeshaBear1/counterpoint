@@ -91,8 +91,8 @@ export default function App() {
       for (const demo of DEMOS) {
         setTranscript(demo.transcript)
         setNowPlaying(demo.title)
-        const { score: s } = await analyze(demo.transcript)
-        setScore(s); setAnalyzedFor(demo.transcript)
+        const { score: s, source: src } = await analyze(demo.transcript)
+        setScore(s); setSource(src); setAnalyzedFor(demo.transcript)
         await new Promise<void>((resolve, reject) => {
           playerRef.current!.play(s, tempo, {
             onTurn: setActiveTurn, onNote: pushBloom, onEnd: () => resolve(),

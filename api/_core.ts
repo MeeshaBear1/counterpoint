@@ -58,6 +58,41 @@ The whole point: a good-faith exchange should read as consonant (shared motifs, 
 
 export class NoKeyError extends Error {}
 
+// Tool schemas guide the model but don't guarantee conformance — live Sonnet 5
+// omits the derivable top-level fields (speakers/totalBeats) often enough that
+// the client's validator rejected every real response and silently fell back to
+// the heuristic. Repair what's derivable, clamp per-event values, drop the rest.
+const KINDS = ['statement', 'question', 'answer', 'agreement', 'challenge', 'interruption']
+
+function normalizeScore(raw: any): unknown {
+  // Seen live: the whole score (or just the events array) JSON-encoded as a
+  // string inside one field. Unwrap before repairing.
+  const parse = (v: any) => { try { return typeof v === 'string' ? JSON.parse(v) : v } catch { return v } }
+  raw = parse(raw)
+  if (raw && typeof raw.events === 'string') {
+    const inner = parse(raw.events)
+    raw = Array.isArray(inner) ? { ...raw, events: inner } : inner
+  }
+  if (!raw || !Array.isArray(raw.events)) return raw
+  const events = raw.events
+    .filter((e: any) => e && typeof e.speaker === 'string' && typeof e.startBeat === 'number' && typeof e.durationBeats === 'number')
+    .sort((a: any, b: any) => a.startBeat - b.startBeat)
+    .map((e: any, i: number) => ({
+      speaker: e.speaker,
+      turn: typeof e.turn === 'number' ? e.turn : i,
+      startBeat: e.startBeat,
+      durationBeats: e.durationBeats,
+      kind: KINDS.includes(e.kind) ? e.kind : 'statement',
+      motifRef: typeof e.motifRef === 'number' ? e.motifRef : 0,
+      intensity: typeof e.intensity === 'number' ? Math.max(0, Math.min(1, e.intensity)) : 0.5,
+    }))
+  const speakers =
+    Array.isArray(raw.speakers) && raw.speakers.length > 0 ? raw.speakers : [...new Set(events.map((e: any) => e.speaker))]
+  const totalBeats =
+    typeof raw.totalBeats === 'number' ? raw.totalBeats : Math.ceil(Math.max(0, ...events.map((e: any) => e.startBeat + e.durationBeats)))
+  return { speakers, events, totalBeats }
+}
+
 // Returns the raw score object (the forced tool's input). Throws NoKeyError when
 // no key is configured, or a plain Error on any API/parse failure — callers map
 // those to the right HTTP status.
@@ -76,5 +111,5 @@ export async function scoreFromTranscript(transcript: string): Promise<unknown> 
   })
   const block = msg.content.find((b) => b.type === 'tool_use')
   if (!block || block.type !== 'tool_use') throw new Error('no score in response')
-  return block.input
+  return normalizeScore(block.input)
 }
