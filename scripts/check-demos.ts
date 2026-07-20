@@ -59,10 +59,9 @@ const bsAll = bsMel.flatMap((n) => n.midis).length
 if (bsInMajor / bsAll < 0.85) fail(`brainstorm only ${((bsInMajor / bsAll) * 100).toFixed(0)}% major`)
 
 // 3. Argument challenge phrases live in C minor (the resolving chromatic lean excepted).
-const challengeSpans = ag.events.filter((e) => e.kind === 'challenge').map((e) => [e.startBeat, e.startBeat + e.durationBeats])
-const inChallenge = ap.notes.filter(
-  (n) => n.voice === 'melody' && challengeSpans.some(([a, b]) => n.startBeat >= a - 0.1 && n.startBeat < b),
-)
+// Phrases are indexed by event, so identify them structurally — the timeline is
+// re-laid metrically and no longer matches the raw score's beats.
+const inChallenge = ap.notes.filter((n) => n.voice === 'melody' && ag.events[n.phrase]?.kind === 'challenge')
 const agMinor = inChallenge.flatMap((n) => n.midis).filter((m) => MINOR_PC.has(m % 12)).length
 const agAll = inChallenge.flatMap((n) => n.midis).length
 if (agAll === 0) fail('no challenge melody notes found')
@@ -86,15 +85,16 @@ const bpStacc = bp.notes.filter((n) => n.staccato).length
 if (apStacc < 8) fail(`argument barely staccato: ${apStacc}`)
 if (bpStacc > apStacc / 3) fail(`brainstorm too staccato: ${bpStacc} vs argument ${apStacc}`)
 
-// 6. No breaks between speakers: the melody line is continuous. Legato phrase
-// endings ring into the next entrance; only staccato bite may leave daylight.
+// 6. No breaks between speakers: each phrase's ring-out reaches the next
+// entrance. (Air *inside* a staccato phrase is articulation, not a break — the
+// invariant is about handoffs.)
 for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
-  const mel = p.notes.filter((n) => n.voice === 'melody').sort((a, b) => a.startBeat - b.startBeat)
-  let covered = mel[0].startBeat + mel[0].durBeats
-  for (const n of mel.slice(1)) {
-    const gap = n.startBeat - covered
-    if (gap > 0.6) fail(`${name}: ${gap.toFixed(2)}-beat hole in the melody at beat ${covered.toFixed(1)}`)
-    covered = Math.max(covered, n.startBeat + n.durBeats)
+  const mel = p.notes.filter((n) => n.voice === 'melody')
+  const ids = [...new Set(mel.map((n) => n.phrase))].sort((a, b) => a - b)
+  for (let k = 1; k < ids.length; k++) {
+    const prevEnd = Math.max(...mel.filter((n) => n.phrase === ids[k - 1]).map((n) => n.startBeat + n.durBeats))
+    const nextStart = Math.min(...mel.filter((n) => n.phrase === ids[k]).map((n) => n.startBeat))
+    if (nextStart - prevEnd > 0.25) fail(`${name}: ${(nextStart - prevEnd).toFixed(2)}-beat break at the handoff into phrase ${ids[k]}`)
   }
 }
 
@@ -103,7 +103,8 @@ for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
 // no phrase is inverted (challenges quote inverted by design).
 {
   const byPhrase = new Map<number, typeof bp.notes>()
-  for (const n of bp.notes.filter((n) => n.voice === 'melody')) {
+  // structural notes only — grace ornaments are not the quoted material
+  for (const n of bp.notes.filter((n) => n.voice === 'melody' && n.durBeats > 0.15).sort((a, b) => a.startBeat - b.startBeat)) {
     byPhrase.set(n.phrase, [...(byPhrase.get(n.phrase) ?? []), n])
   }
   const ids = [...byPhrase.keys()].sort((a, b) => a - b)
@@ -125,12 +126,22 @@ for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
   const K = 36, S = 38
   const ff = plan(bs, { ...OPTS, bassStyle: 'offbeat', compStyle: 'held', drums: 'fourfloor' })
   const kicks = ff.notes.filter((n) => n.voice === 'drums' && n.midis[0] === K)
-  if (kicks.length < bs.totalBeats - 4) fail(`four-on-the-floor missing kicks: ${kicks.length} for ${bs.totalBeats} beats`)
+  // one kick per beat across the drummed span (the metrical timeline, not the raw score)
+  const drumSpan = Math.max(...ff.notes.filter((n) => n.voice === 'drums').map((n) => n.startBeat))
+  if (kicks.length < drumSpan * 0.9) fail(`four-on-the-floor missing kicks: ${kicks.length} over ${drumSpan.toFixed(0)} beats`)
 
   const bb = plan(bs, { ...OPTS, bassStyle: 'boom', compStyle: 'held', drums: 'boombap' })
   const snares = bb.notes.filter((n) => n.voice === 'drums' && n.midis[0] === S)
-  if (!snares.every((n) => Math.abs((n.startBeat % 2) - 1) < 0.05)) fail('boom-bap snare not on the backbeat')
-  if (snares.length < 6) fail(`boom-bap barely any snares: ${snares.length}`)
+  // the loud snares ARE the backbeat; quiet ones are ghost notes and fills,
+  // which is exactly what a human drummer adds around it
+  // whole-beat + loud = the backbeat itself; sixteenth-position hits are fills
+  const backbeat = snares.filter((n) => n.vel > 0.5 && Math.abs(n.startBeat - Math.round(n.startBeat)) < 0.08)
+  const ghosts = snares.filter((n) => n.vel <= 0.3)
+  const fillHits = snares.filter((n) => Math.abs(n.startBeat - Math.round(n.startBeat)) >= 0.2)
+  if (!backbeat.every((n) => Math.abs((n.startBeat % 2) - 1) < 0.08)) fail('boom-bap backbeat snare is off beats 2 & 4')
+  if (fillHits.length < 3) fail(`no fill hits between the beats: ${fillHits.length}`)
+  if (backbeat.length < 6) fail(`boom-bap barely any backbeat: ${backbeat.length}`)
+  if (ghosts.length < 4) fail(`no ghost snares: ${ghosts.length}`)
 
   const walk = plan(bs, { ...OPTS, bassStyle: 'walking', compStyle: 'arp', drums: null })
   const bassNotes = walk.notes.filter((n) => n.voice === 'bass')
@@ -139,7 +150,76 @@ for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
 
   const again = plan(bs, { ...OPTS, bassStyle: 'offbeat', compStyle: 'held', drums: 'fourfloor' })
   if (JSON.stringify(again) !== JSON.stringify(ff)) fail('plan is not deterministic')
-  console.log(`styles: fourfloor kicks=${kicks.length} · boombap snares=${snares.length} · walking bass=${bassNotes.length} · deterministic`)
+
+  // drums must breathe: fills near phrase ends, and no two bars identical
+  const fills = bb.notes.filter((n) => n.voice === 'drums' && n.midis[0] === S && n.startBeat % 1 > 0.2 && n.startBeat % 1 < 0.8)
+  if (fills.length < 4) fail(`no drum fills / ghost notes: ${fills.length}`)
+  const kickVels = new Set(ff.notes.filter((n) => n.voice === 'drums' && n.midis[0] === K).map((n) => n.vel.toFixed(4)))
+  if (kickVels.size < 5) fail(`drums are robotic: only ${kickVels.size} distinct kick velocities`)
+  console.log(`styles: fourfloor kicks=${kicks.length} · boombap snares=${snares.length} · walking bass=${bassNotes.length} · fills=${fills.length} · deterministic`)
+}
+
+// 9. HUMAN-PLAYED INVARIANTS ------------------------------------------------
+// (a) Metrical: melody onsets sit on the eighth-note grid, within humanization.
+{
+  const mel = bp.notes.filter((n) => n.voice === 'melody')
+  const offGrid = mel.filter((n) => {
+    const off = Math.abs(n.startBeat - Math.round(n.startBeat * 2) / 2)
+    return off > 0.09
+  })
+  // grace notes are deliberately off-grid leaning ornaments
+  const graces = mel.filter((n) => n.durBeats < 0.15).length
+  if (offGrid.length - graces > mel.length * 0.1) {
+    fail(`melody is not metrical: ${offGrid.length - graces}/${mel.length} onsets off the eighth grid`)
+  }
+  console.log(`metrical: ${mel.length - (offGrid.length - graces)}/${mel.length} onsets on grid (+${graces} grace notes)`)
+}
+
+// (b) Strong beats land on chord tones — composed, not generated.
+{
+  const barRootAt = (beat: number) => {
+    // mirrors compose: I V vi IV, one chord per bar, dominant in the last bar
+    const nBars = Math.max(1, Math.ceil((bp.endBeat - 6) / 4))
+    const b = Math.floor(beat / 4)
+    return b === nBars - 1 && nBars > 1 ? 4 : [0, 4, 5, 3][b % 4]
+  }
+  const mel = bp.notes.filter((n) => n.voice === 'melody' && n.durBeats > 0.15)
+  const onBeat = mel.filter((n) => Math.abs(n.startBeat - Math.round(n.startBeat)) < 0.09)
+  const MAJ = [0, 2, 4, 5, 7, 9, 11]
+  const tonePcs = (root: number) => [root, root + 2, root + 4].map((d) => MAJ[((d % 7) + 7) % 7] % 12)
+  const hits = onBeat.filter((n) => tonePcs(barRootAt(n.startBeat)).includes(n.midis[0] % 12)).length
+  if (hits / onBeat.length < 0.55) fail(`only ${((hits / onBeat.length) * 100).toFixed(0)}% of downbeat notes are chord tones`)
+  console.log(`harmony: ${((hits / onBeat.length) * 100).toFixed(0)}% of on-beat melody notes are chord tones`)
+}
+
+// (c) Metric accent hierarchy: downbeats are played stronger than offbeats.
+{
+  const mel = bp.notes.filter((n) => n.voice === 'melody' && n.durBeats > 0.15)
+  const mean = (a: number[]) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0)
+  const downs = mean(mel.filter((n) => Math.abs((n.startBeat % 4) - Math.round(n.startBeat % 4)) < 0.09 && Math.round(n.startBeat % 4) === 0).map((n) => n.vel))
+  const offs = mean(mel.filter((n) => Math.abs((n.startBeat % 1) - 0.5) < 0.12).map((n) => n.vel))
+  if (!(downs > offs)) fail(`no metric accent: downbeat vel ${downs.toFixed(3)} vs offbeat ${offs.toFixed(3)}`)
+  console.log(`dynamics: downbeats ${downs.toFixed(3)} > offbeats ${offs.toFixed(3)}`)
+}
+
+// (d) Voice leading: comping chords move by small steps, not parallel jumps.
+{
+  const pad = bp.notes.filter((n) => n.voice === 'pad').sort((a, b) => a.startBeat - b.startBeat)
+  const byBar = new Map<number, number[]>()
+  for (const n of pad) {
+    const bar = Math.floor(n.startBeat / 4)
+    byBar.set(bar, [...(byBar.get(bar) ?? []), ...n.midis])
+  }
+  const barsSorted = [...byBar.keys()].sort((a, b) => a - b)
+  let maxMove = 0
+  for (let k = 1; k < barsSorted.length; k++) {
+    const a = byBar.get(barsSorted[k - 1])!.sort((x, y) => x - y)
+    const b = byBar.get(barsSorted[k])!.sort((x, y) => x - y)
+    const move = Math.abs((b[0] ?? 0) - (a[0] ?? 0))
+    maxMove = Math.max(maxMove, move)
+  }
+  if (maxMove > 7) fail(`comping leaps ${maxMove} semitones between bars — not voice-led`)
+  console.log(`voice leading: largest bass-of-chord move between bars = ${maxMove} semitones`)
 }
 
 console.log(

@@ -38,10 +38,37 @@ Single-page React + Tone.js app, wrapped as native iOS & Android via Capacitor.
 | Emotional temperature | tempo & dynamics arc (heat = faster, louder) + major ↔ minor mode |
 | A collaborative ending | earns a V → I(add9) cadence; a combative one ends on a bare low minor chord |
 
-Under the voices, a generated accompaniment (bass root motion + soft rolled
-triads, I–vi–IV–V when warm, i–VI–III–VII when dark) gives the ear a floor.
+Under the voices, a generated accompaniment (functional harmony one chord per
+bar — I–V–vi–IV when warm, i–VI–III–VII when dark — with voice-led comping and
+a cadence into the final bar) gives the ear a floor.
+
+### Why it sounds played rather than generated
+
+Phrases are laid out **metrically**: entrances land on beats, lengths are real
+note values, so melody, bass, comping and drums share one time system. (Off-grid
+onsets fighting an on-grid kit was the biggest "machine" tell.) Expression then
+comes from playing *against* that grid:
+
+- **Chord-tone targeting** — strong beats land on chord tones; dissonance lives
+  on weak beats as passing motion. This is what separates composed melody from
+  generated notes.
+- **Melodic hygiene** — stepwise motion, and a leap is answered by a step back
+  the other way.
+- **Metric accent hierarchy** — beat 1 > beat 3 > beats 2 & 4 > offbeats.
+- **Correlated timing drift**, not white-noise jitter — a player's pulse
+  breathes; a broken sequencer twitches.
+- **Per-genre feel** — swing and hip-hop sit behind the beat (kick stays put,
+  snare and hats lay back — that difference *is* the feel); EDM pushes ahead.
+- **Phrase-end rubato** — the ritardando every ensemble plays at a cadence.
+- **Grace notes** leaning into phrase peaks; strums rolled as real up/down
+  strokes; bass anticipating microscopically.
+- **Drums that breathe** — ghost notes, hat accents, bar-to-bar velocity
+  variation, and a fill every four bars.
+
 Composition is pure and deterministic ([src/compose.ts](src/compose.ts)) — the
-check suite asserts on real note plans (no bare-tritone chords anywhere, ever).
+check suite asserts on real note plans: grid alignment, chord tones on strong
+beats, accent hierarchy, voice-leading distance, drum fills, phrase-handoff
+continuity, imitation rate, and no bare-tritone chords anywhere, ever.
 
 ### Styles
 

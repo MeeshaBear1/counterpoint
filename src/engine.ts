@@ -279,19 +279,19 @@ export function planFor(score: Score, paletteId: string): Plan {
 // Schedule a plan onto a transport. Returns the end time in seconds.
 export function schedulePlan(
   transport: ReturnType<typeof Tone.getTransport>,
-  score: Score,
   planned: Plan,
   voices: Voices,
   baseBpm: number,
   hooks: RenderHooks = {},
 ): number {
-  const clock = makeClock(score, baseBpm, planned.endBeat)
+  const clock = makeClock(planned, baseBpm)
   const draw = Tone.getDraw()
 
   for (const n of planned.notes) {
     const t0 = clock(n.startBeat)
     const t1 = clock(n.startBeat + n.durBeats)
-    const dur = Math.max(0.07, (t1 - t0) * (n.staccato ? 0.45 : 0.92))
+    // articulation lives in the composer now — durBeats is the real sounding length
+    const dur = Math.max(0.06, t1 - t0)
     if (n.voice === 'drums') {
       if (!voices.kit) continue
       const kit = voices.kit
@@ -317,11 +317,15 @@ export function schedulePlan(
 
 function makeSpace(): { wet: Tone.ToneAudioNode; dry: Tone.ToneAudioNode; nodes: Tone.ToneAudioNode[]; ready: Promise<void> } {
   const reverb = new Tone.Reverb({ decay: 2.8, preDelay: 0.02, wet: 0.3 })
-  const limiter = new Tone.Limiter(-2)
-  reverb.connect(limiter)
+  // master trim before the limiter: a dense mix (four-on-the-floor kick + sub
+  // bass + pads) otherwise drives the limiter to full scale and clips on export
+  const master = new Tone.Gain(0.7)
+  const limiter = new Tone.Limiter(-3)
+  reverb.connect(master)
+  master.connect(limiter)
   limiter.toDestination()
-  // drums go straight to the limiter — a dry, punchy groove under the wet bed
-  return { wet: reverb, dry: limiter, nodes: [reverb, limiter], ready: reverb.ready.then(() => undefined) }
+  // drums bypass the reverb — a dry, punchy groove under the wet bed
+  return { wet: reverb, dry: master, nodes: [reverb, master, limiter], ready: reverb.ready.then(() => undefined) }
 }
 
 // --- live player ----------------------------------------------------------
@@ -369,7 +373,7 @@ export class Player {
     if (gen !== this.gen) return // user hit stop while samples loaded
     const transport = Tone.getTransport()
     const planned = planFor(score, this.builtFor)
-    const end = schedulePlan(transport, score, planned, this.voices!, bpm, hooks)
+    const end = schedulePlan(transport, planned, this.voices!, bpm, hooks)
     if (hooks.onEnd) transport.scheduleOnce(() => Tone.getDraw().schedule(() => hooks.onEnd!(), 0), end)
     transport.start()
   }
@@ -401,14 +405,14 @@ export async function renderWav(score: Score, bpm: number, paletteId: string): P
     palette = paletteById('fallback')
   }
   const planned = planFor(score, palette.id)
-  const duration = makeClock(score, bpm, planned.endBeat)(planned.endBeat) + 2.5
+  const duration = makeClock(planned, bpm)(planned.endBeat) + 2.5
 
   const buffer = await Tone.Offline(async ({ transport }) => {
     const space = makeSpace()
     await space.ready
     const voices = buildVoices(palette, space.wet, space.dry)
     transport.bpm.value = bpm
-    schedulePlan(transport, score, planned, voices, bpm)
+    schedulePlan(transport, planned, voices, bpm)
     transport.start()
   }, duration)
 
