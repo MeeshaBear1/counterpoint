@@ -176,7 +176,13 @@ export default function App() {
               </label>
               <label className="text-xs text-white/60">
                 Palette
-                <select value={paletteId} onChange={(e) => { stop(); setPaletteId(e.target.value) }}
+                <select value={paletteId}
+                  onChange={(e) => {
+                    stop()
+                    setPaletteId(e.target.value)
+                    const p = PALETTES.find((x) => x.id === e.target.value)
+                    if (p) setTempo(p.defaultBpm) // each genre has its natural pulse
+                  }}
                   className="mt-1 w-full rounded-md border border-white/15 bg-black/40 px-2 py-1.5 text-sm text-white/85 outline-none">
                   {PALETTES.map((p) => <option key={p.id} value={p.id} className="bg-[#111]">{p.label}</option>)}
                 </select>

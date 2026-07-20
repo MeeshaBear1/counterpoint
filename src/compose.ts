@@ -14,15 +14,19 @@
 import type { Score, ScoreEvent } from './score'
 
 export interface PlannedNote {
-  voice: 'melody' | 'bass' | 'pad'
+  voice: 'melody' | 'bass' | 'pad' | 'drums'
   speaker: number // melody only; -1 otherwise
   phrase: number // melody only (event index); -1 otherwise
   startBeat: number
   durBeats: number
-  midis: number[]
+  midis: number[] // drums: 36 kick · 38 snare · 42 closed hat · 46 open hat · 51 ride
   vel: number
   staccato?: boolean
 }
+
+export type BassStyle = 'held' | 'walking' | 'rootFifth' | 'offbeat' | 'boom'
+export type CompStyle = 'held' | 'arp' | 'stabs' | 'strum'
+export type DrumStyle = 'swing' | 'boombap' | 'backbeat' | 'pop' | 'fourfloor' | null
 
 export interface Plan {
   notes: PlannedNote[]
@@ -35,6 +39,9 @@ export interface PlanOpts {
   bassBase: number
   padBase: number
   swing: number // 0 = straight, ~0.6 = jazz
+  bassStyle?: BassStyle // default 'held'
+  compStyle?: CompStyle // default 'held'
+  drums?: DrumStyle // default none
 }
 
 const MAJOR = [0, 2, 4, 5, 7, 9, 11]
@@ -181,26 +188,111 @@ export function plan(score: Score, opts: PlanOpts): Plan {
   }
   groups.forEach((g, gi) => { g.end = gi + 1 < groups.length ? groups[gi + 1].start : score.totalBeats })
 
+  const bassStyle = opts.bassStyle ?? 'held'
+  const compStyle = opts.compStyle ?? 'held'
+  // swing shift for anything landing on an offbeat eighth
+  const sw = (beat: number) => (opts.swing > 0 && Math.abs((beat % 1) - 0.5) < 0.15 ? opts.swing * 0.16 : 0)
+  const bassNote = (startBeat: number, durBeats: number, semis: number, vel: number) =>
+    notes.push({ voice: 'bass', speaker: -1, phrase: -1, startBeat: startBeat + sw(startBeat), durBeats, midis: [opts.bassBase + semis], vel })
+
   groups.forEach((g, gi) => {
     const span = g.end - g.start
     if (span <= 0) return
     const anchor = events[gi * 2]
-    // bass: root, a fifth at the midpoint of long spans, and a stepwise
-    // approach into the next chord — continuous motion, never a dead stop
-    notes.push({ voice: 'bass', speaker: -1, phrase: -1, startBeat: g.start, durBeats: Math.max(1, span * 0.95), midis: [opts.bassBase + degToSemis(g.scale, g.root)], vel: Math.min(1, 0.4 + anchor.intensity * 0.25) })
-    if (span >= 3) {
-      notes.push({ voice: 'bass', speaker: -1, phrase: -1, startBeat: g.start + span / 2, durBeats: span / 2 - 0.75, midis: [opts.bassBase + degToSemis(g.scale, g.root + 4)], vel: 0.35 })
-    }
     const next = groups[gi + 1]
-    if (next && next.root !== g.root && span >= 2) {
-      notes.push({ voice: 'bass', speaker: -1, phrase: -1, startBeat: g.end - 0.75, durBeats: 0.7, midis: [opts.bassBase + degToSemis(next.scale, next.root - 1)], vel: 0.3 })
+    const rootVel = Math.min(1, 0.4 + anchor.intensity * 0.25)
+
+    // --- bass, per style ---------------------------------------------------
+    if (bassStyle === 'walking') {
+      // quarter-note line through the chord, approaching the next root
+      const cycle = [g.root, g.root + 2, g.root + 4, g.root + 2]
+      for (let q = 0; q < Math.floor(span); q++) {
+        const isLast = q === Math.floor(span) - 1
+        const deg = isLast && next && next.root !== g.root ? next.root - 1 : cycle[q % 4]
+        bassNote(g.start + q, 0.9, degToSemis(isLast && next ? next.scale : g.scale, deg), q % 4 === 0 ? rootVel : 0.35)
+      }
+    } else if (bassStyle === 'rootFifth') {
+      // the two-feel: root and fifth alternating every two beats
+      for (let b = 0; b < span; b += 2) {
+        const onRoot = (b / 2) % 2 === 0
+        bassNote(g.start + b, Math.min(1.9, span - b), degToSemis(g.scale, onRoot ? g.root : g.root + 4), onRoot ? rootVel : 0.4)
+      }
+    } else if (bassStyle === 'offbeat') {
+      // eighth-note offbeat bounce — the four-on-the-floor counterweight
+      for (let b = 0; b < span - 0.5; b += 1) {
+        bassNote(g.start + b + 0.5, 0.35, degToSemis(g.scale, g.root), 0.5)
+      }
+    } else if (bassStyle === 'boom') {
+      // sparse sub hits locking with the boom-bap kick
+      for (let b = 0; b < span; b += 4) {
+        bassNote(g.start + b, Math.min(1.6, span - b), degToSemis(g.scale, g.root), rootVel)
+        if (span - b > 2) bassNote(g.start + b + 1.75, 0.7, degToSemis(g.scale, g.root), 0.35)
+      }
+    } else {
+      // held: root, a fifth at the midpoint of long spans, stepwise approach
+      bassNote(g.start, Math.max(1, span * 0.95), degToSemis(g.scale, g.root), rootVel)
+      if (span >= 3) bassNote(g.start + span / 2, span / 2 - 0.75, degToSemis(g.scale, g.root + 4), 0.35)
+      if (next && next.root !== g.root && span >= 2) bassNote(g.end - 0.75, 0.7, degToSemis(next.scale, next.root - 1), 0.3)
     }
-    // pad: one rolled chord held for the whole group — the continuous bed
+
+    // --- comping, per style ------------------------------------------------
     const triad = [0, 2, 4].map((d) => opts.padBase + degToSemis(g.scale, g.root + d))
-    triad.forEach((m, ti) => {
-      notes.push({ voice: 'pad', speaker: -1, phrase: -1, startBeat: g.start + ti * 0.07, durBeats: span - ti * 0.07, midis: [m], vel: Math.min(0.5, 0.22 + anchor.intensity * 0.08) })
-    })
+    const compVel = Math.min(0.5, 0.22 + anchor.intensity * 0.08)
+    if (compStyle === 'arp') {
+      // broken-chord eighths — the continuo realization
+      const cyc = [0, 2, 4, 2]
+      for (let e = 0; e * 0.5 < span - 0.25; e++) {
+        const m = opts.padBase + degToSemis(g.scale, g.root + cyc[e % 4])
+        notes.push({ voice: 'pad', speaker: -1, phrase: -1, startBeat: g.start + e * 0.5, durBeats: 0.48, midis: [m], vel: compVel })
+      }
+    } else if (compStyle === 'stabs') {
+      // syncopated chord punches on the back offbeats
+      for (let b = 0; b < span; b += 4) {
+        for (const off of [1.5, 3.5]) {
+          if (b + off < span) {
+            notes.push({ voice: 'pad', speaker: -1, phrase: -1, startBeat: g.start + b + off + sw(off), durBeats: 0.3, midis: triad, vel: Math.min(0.6, compVel + 0.18) })
+          }
+        }
+      }
+    } else if (compStyle === 'strum') {
+      // strummed chords — quick roll on a driving pattern
+      const patt = [0, 1.5, 2, 3.5]
+      for (let b = 0; b < span; b += 4) {
+        for (const off of patt) {
+          if (b + off >= span) continue
+          triad.forEach((m, ti) => {
+            notes.push({ voice: 'pad', speaker: -1, phrase: -1, startBeat: g.start + b + off + sw(off) + ti * 0.03, durBeats: 1.1, midis: [m], vel: compVel + (off === 0 ? 0.06 : 0) })
+          })
+        }
+      }
+    } else {
+      // held: one rolled chord for the whole group — the continuous bed
+      triad.forEach((m, ti) => {
+        notes.push({ voice: 'pad', speaker: -1, phrase: -1, startBeat: g.start + ti * 0.07, durBeats: span - ti * 0.07, midis: [m], vel: compVel })
+      })
+    }
   })
+
+  // --- drums: the groove layer, one bar pattern repeated to the last turn ---
+  if (opts.drums) {
+    const K = 36, S = 38, H = 42, O = 46, R = 51
+    // [piece, barOffset, velocity][]
+    const PATTERNS: Record<string, [number, number, number][]> = {
+      swing: [[R, 0, 0.5], [R, 1, 0.4], [R, 1.5, 0.35], [R, 2, 0.5], [R, 3, 0.4], [R, 3.5, 0.35], [H, 1, 0.3], [H, 3, 0.3], [K, 0, 0.25], [K, 2, 0.2]],
+      boombap: [[K, 0, 0.9], [K, 1.75, 0.7], [S, 1, 0.85], [S, 3, 0.85], [H, 0, 0.4], [H, 0.5, 0.3], [H, 1, 0.4], [H, 1.5, 0.3], [H, 2, 0.4], [H, 2.5, 0.3], [H, 3, 0.4], [H, 3.5, 0.3]],
+      backbeat: [[K, 0, 0.8], [K, 2, 0.7], [S, 1, 0.75], [S, 3, 0.75], [H, 0, 0.35], [H, 0.5, 0.25], [H, 1, 0.35], [H, 1.5, 0.25], [H, 2, 0.35], [H, 2.5, 0.25], [H, 3, 0.35], [H, 3.5, 0.25]],
+      pop: [[K, 0, 0.85], [K, 1.5, 0.6], [K, 2, 0.75], [S, 1, 0.8], [S, 3, 0.8], [H, 0.5, 0.3], [H, 1.5, 0.3], [H, 2.5, 0.3], [O, 3.5, 0.35]],
+      fourfloor: [[K, 0, 0.95], [K, 1, 0.95], [K, 2, 0.95], [K, 3, 0.95], [O, 0.5, 0.45], [O, 1.5, 0.45], [O, 2.5, 0.45], [O, 3.5, 0.45], [S, 1, 0.6], [S, 3, 0.6]],
+    }
+    const patt = PATTERNS[opts.drums]
+    for (let bar = 0; bar * 4 < score.totalBeats; bar++) {
+      for (const [piece, off, vel] of patt) {
+        const beat = bar * 4 + off
+        if (beat >= score.totalBeats) continue
+        notes.push({ voice: 'drums', speaker: -1, phrase: -1, startBeat: beat + sw(beat), durBeats: 0.25, midis: [piece], vel })
+      }
+    }
+  }
 
   // --- melody: every phrase plays off the counterparty ---------------------
   let lift = 0

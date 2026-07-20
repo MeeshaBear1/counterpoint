@@ -8,7 +8,7 @@ import { analyzeHeuristic } from '../src/heuristic'
 import { parseTranscript } from '../src/score'
 import type { Score } from '../src/score'
 
-const OPTS = { speakerBases: [60, 48, 72, 72, 60, 72], bassBase: 36, padBase: 60, swing: 0 }
+const OPTS = { speakerBases: [60, 48, 72, 72, 60, 72], bassBase: 36, padBase: 60, swing: 0 } // neutral: held bass/comp, no drums
 const MAJOR_PC = new Set([0, 2, 4, 5, 7, 9, 11])
 const MINOR_PC = new Set([0, 2, 3, 5, 7, 8, 10])
 
@@ -118,6 +118,28 @@ for (const [name, p] of [['brainstorm', bp], ['argument', ap]] as const) {
   }
   if (eligible === 0 || hits / eligible < 0.7) fail(`imitation too weak: ${hits}/${eligible} phrases quote the counterparty`)
   console.log(`imitation: ${hits}/${eligible} phrases open from the counterparty's tail`)
+}
+
+// 8. The style layer: each groove produces its signature — and stays deterministic.
+{
+  const K = 36, S = 38
+  const ff = plan(bs, { ...OPTS, bassStyle: 'offbeat', compStyle: 'held', drums: 'fourfloor' })
+  const kicks = ff.notes.filter((n) => n.voice === 'drums' && n.midis[0] === K)
+  if (kicks.length < bs.totalBeats - 4) fail(`four-on-the-floor missing kicks: ${kicks.length} for ${bs.totalBeats} beats`)
+
+  const bb = plan(bs, { ...OPTS, bassStyle: 'boom', compStyle: 'held', drums: 'boombap' })
+  const snares = bb.notes.filter((n) => n.voice === 'drums' && n.midis[0] === S)
+  if (!snares.every((n) => Math.abs((n.startBeat % 2) - 1) < 0.05)) fail('boom-bap snare not on the backbeat')
+  if (snares.length < 6) fail(`boom-bap barely any snares: ${snares.length}`)
+
+  const walk = plan(bs, { ...OPTS, bassStyle: 'walking', compStyle: 'arp', drums: null })
+  const bassNotes = walk.notes.filter((n) => n.voice === 'bass')
+  if (bassNotes.length < bs.totalBeats * 0.7) fail(`walking bass too sparse: ${bassNotes.length} notes over ${bs.totalBeats} beats`)
+  if (walk.notes.some((n) => n.voice === 'drums')) fail('drums emitted with drums: null')
+
+  const again = plan(bs, { ...OPTS, bassStyle: 'offbeat', compStyle: 'held', drums: 'fourfloor' })
+  if (JSON.stringify(again) !== JSON.stringify(ff)) fail('plan is not deterministic')
+  console.log(`styles: fourfloor kicks=${kicks.length} · boombap snares=${snares.length} · walking bass=${bassNotes.length} · deterministic`)
 }
 
 console.log(

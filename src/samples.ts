@@ -13,6 +13,16 @@ const NOTE_SETS: Record<string, string[]> = {
   flute: ['C4', 'E4', 'A4', 'C5', 'E5', 'C6'],
   contrabass: ['G1', 'C2', 'D2', 'E2', 'A2'],
   saxophone: ['C4', 'D4', 'F4', 'A4', 'C5'],
+  trumpet: ['F3', 'C4', 'F4', 'G4', 'D5', 'F5', 'C6'],
+  trombone: ['F2', 'C3', 'F3', 'C4', 'F4'],
+  clarinet: ['D3', 'F3', 'D4', 'F4', 'D5', 'F5'],
+  'french-horn': ['C2', 'D3', 'F3', 'C4', 'D5'],
+  bassoon: ['G2', 'C3', 'A3', 'C4', 'G4'],
+  tuba: ['F1', 'Ds2', 'F2', 'As2', 'D3'],
+  'guitar-acoustic': ['E2', 'A2', 'D3', 'G3', 'C4', 'E4', 'A4', 'C5'],
+  'guitar-electric': ['E2', 'A2', 'C3', 'C4', 'A4', 'C5'],
+  'bass-electric': ['E1', 'G1', 'Cs2', 'E2', 'G2', 'Cs3', 'E3'],
+  organ: ['C2', 'A2', 'C3', 'A3', 'C4', 'A4', 'C5'],
 }
 
 const cache = new Map<string, Record<string, AudioBuffer>>()
@@ -52,7 +62,8 @@ export function makeSampler(name: string, opts: { volume: number; attack?: numbe
   const buffers = cache.get(name)
   if (!buffers) throw new Error(`instrument ${name} not preloaded`)
   const urls: Record<string, AudioBuffer> = {}
-  for (const [note, buf] of Object.entries(buffers)) urls[note] = buf
+  // filenames use "s" for sharp (Ds2.mp3); Tone note names want "D#2"
+  for (const [note, buf] of Object.entries(buffers)) urls[note.replace(/^([A-G])s/, '$1#')] = buf
   return new Tone.Sampler({
     urls: urls as any,
     volume: opts.volume,

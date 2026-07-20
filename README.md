@@ -43,14 +43,28 @@ triads, I–vi–IV–V when warm, i–VI–III–VII when dark) gives the ear a
 Composition is pure and deterministic ([src/compose.ts](src/compose.ts)) — the
 check suite asserts on real note plans (no bare-tritone chords anywhere, ever).
 
-### Instruments
+### Styles
 
-Three palettes: **Chamber** (sampled piano, cello, violin, flute, harp — the
-default), **Jazz trio** (piano, sax, upright bass, light swing), and
-**Night** (pure synth — loads instantly, no samples, offline fallback).
+Seven genre palettes — same conversation counterpoint, different worlds. Genre
+identity lives in the arrangement layer: per-style rhythm section (synthesized
+kick/snare/hats/ride patterns), bass style, comping style, swing, and a natural
+default tempo.
+
+| Palette | Inspiration | Arrangement |
+|---|---|---|
+| Orchestra | Bach / Beethoven grandeur | strings, winds & horns · walking continuo bass · organ arpeggio comping |
+| Big band | Sinatra-era swing | trumpet/sax/trombone · walking upright bass · piano stabs · swing ride, 116 BPM |
+| Hot jazz | Louis Armstrong-style hot five | trumpet & clarinet leads · tuba two-feel · strummed comping |
+| 90s hip-hop | boom bap | piano/organ/electric guitar · sub bass locked to the kick · 88 BPM |
+| Modern country | radio country | acoustic/electric guitars & fiddle · root-fifth bass · strums · backbeat |
+| Pop anthem | modern pop | piano & guitars · driving strums · pop kit |
+| Festival EDM | Avicii-style four-on-the-floor | piano + pluck leads · offbeat sub bass · saw pad · 126 BPM |
+
 Samples are vendored in `public/samples/` from
 [nbrosowsky/tonejs-instruments](https://github.com/nbrosowsky/tonejs-instruments)
-(VSCO2 Community Edition et al., CC licenses).
+(VSCO2 Community Edition et al., CC licenses). Drums are synthesized (no
+samples), and a hidden all-synth palette takes over automatically if sample
+loading ever fails.
 
 ## Run
 
