@@ -74,7 +74,7 @@ export default function App() {
         onEnd: () => { setStatus('idle'); setActiveTurn(-1) },
       })
     } catch (e: any) {
-      setError(e?.message ?? 'something broke'); setStatus('idle')
+      setError(e?.message ?? 'Playback did not start. Press Listen again.'); setStatus('idle')
     }
   }, [transcript, tempo, ensureScore, pushBloom])
 
@@ -101,7 +101,7 @@ export default function App() {
         await new Promise((r) => setTimeout(r, 900)) // breath between pieces
       }
     } catch (e: any) {
-      setError(e?.message ?? 'playback failed')
+      setError(e?.message ?? 'Playback stopped partway. Press Play both again.')
     }
     setStatus('idle'); setActiveTurn(-1); setNowPlaying('')
   }, [tempo, pushBloom])
@@ -117,7 +117,7 @@ export default function App() {
       a.href = url; a.download = 'counterpoint.wav'; a.click()
       URL.revokeObjectURL(url)
     } catch (e: any) {
-      setError(e?.message ?? 'render failed')
+      setError(e?.message ?? 'The WAV did not render. Press WAV again.')
     }
     setStatus('idle')
   }, [transcript, tempo, paletteId, ensureScore])
